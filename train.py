@@ -1,10 +1,13 @@
 import pandas as pd
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.multioutput import MultiOutputRegressor
-import xgboost as xgb  # Mengimpor library XGBoost
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import MinMaxScaler
+import xgboost as xgb
 import pickle
 import matplotlib.pyplot as plt
+import numpy as np
 
 # 1. Memuat Dataset
 try:
@@ -13,71 +16,113 @@ try:
     # 2. Pra-pemrosesan Data
     df_cleaned = df.drop(columns=['Luas Panen Padi', 'Potensi Gagal Panen', 'year_month', 'Datetime'])
 
-    # 3. Mendefinisikan Fitur (X) dan Target (y)
+    # 3. Mendefinisikan Fitur dan Target
     X = df_cleaned.drop(columns=['Produksi Padi', 'Beras'])
     y = df_cleaned[['Produksi Padi', 'Beras']]
 
-    # 4. Membagi Data
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    # 4. Scaling
+    scaler = MinMaxScaler()
+    X_scaled = scaler.fit_transform(X)
 
-    # 5. Membuat dan Melatih Model XGBoost
-    # Inisiasi model XGBRegressor
-    xgb_regressor = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=100, random_state=42)
-    
-    # Bungkus dengan MultiOutputRegressor untuk menangani multi-target
-    model = MultiOutputRegressor(estimator=xgb_regressor)
-    
-    # Latih model dengan data training
-    model.fit(X_train, y_train)
+    # 5. Membagi Data
+    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
 
-    # 6. Menyimpan Model ke File Pickle
-    model_filename = 'xgboost_model.pkl'
-    with open(model_filename, 'wb') as file:
-        pickle.dump(model, file)
-    
-    print(f"✅ Model telah berhasil disimpan ke file: {model_filename}")
+    # --- Hyperparameter Tuning untuk XGBoost ---
+    xgb_base = xgb.XGBRegressor(objective='reg:squarederror', random_state=42)
 
-    # 7. Melakukan Prediksi pada Data Uji
-    y_pred = model.predict(X_test)
+    xgb_param_grid = {
+        'n_estimators': [100, 200, 300],
+        'max_depth': [3, 5, 7, 10],
+        'learning_rate': [0.01, 0.05, 0.1, 0.2],
+        'subsample': [0.6, 0.8, 1.0],
+        'colsample_bytree': [0.6, 0.8, 1.0]
+    }
 
-    # 8. Mengevaluasi Kinerja Model
-    mse = mean_squared_error(y_test, y_pred)
-    r2 = r2_score(y_test, y_pred)
+    xgb_search = RandomizedSearchCV(
+        estimator=xgb_base,
+        param_distributions=xgb_param_grid,
+        n_iter=20,
+        scoring='neg_mean_squared_error',
+        cv=3,
+        verbose=1,
+        random_state=42,
+        n_jobs=-1
+    )
 
-    print("\n--- Evaluasi Model XGBoost ---")
-    print(f"Mean Squared Error: {mse}")
-    print(f"R-squared: {r2}")
+    xgb_model = MultiOutputRegressor(xgb_search)
+    xgb_model.fit(X_train, y_train)
 
-    # 9. Menampilkan Tingkat Kepentingan Fitur (Rata-rata dari kedua model)
-    # Ambil tingkat kepentingan dari masing-masing model target
-    importances_padi = model.estimators_[0].feature_importances_
-    importances_beras = model.estimators_[1].feature_importances_
-    
-    # Hitung rata-rata tingkat kepentingan
+    # --- Hyperparameter Tuning untuk Random Forest ---
+    rf_base = RandomForestRegressor(random_state=42)
+
+    rf_param_grid = {
+        'n_estimators': [100, 200, 300, 500],
+        'max_depth': [None, 10, 20, 30],
+        'min_samples_split': [2, 5, 10],
+        'min_samples_leaf': [1, 2, 4],
+        'max_features': ['auto', 'sqrt', 'log2']
+    }
+
+    rf_search = RandomizedSearchCV(
+        estimator=rf_base,
+        param_distributions=rf_param_grid,
+        n_iter=20,
+        scoring='neg_mean_squared_error',
+        cv=3,
+        verbose=1,
+        random_state=42,
+        n_jobs=-1
+    )
+
+    rf_model = MultiOutputRegressor(rf_search)
+    rf_model.fit(X_train, y_train)
+
+    # Simpan model & scaler
+    with open('xgboost_tuned.pkl', 'wb') as f:
+        pickle.dump(xgb_model, f)
+    with open('random_forest_tuned.pkl', 'wb') as f:
+        pickle.dump(rf_model, f)
+    with open('scaler.pkl', 'wb') as f:
+        pickle.dump(scaler, f)
+
+    # --- Evaluasi ---
+    def evaluate_model(name, model):
+        y_pred = model.predict(X_test)
+        mse = mean_squared_error(y_test, y_pred)
+        r2 = r2_score(y_test, y_pred)
+        print(f"\n--- {name} ---")
+        print(f"MSE: {mse:.4f}")
+        print(f"R²: {r2:.4f}")
+        return mse, r2
+
+    mse_xgb, r2_xgb = evaluate_model("XGBoost Tuned", xgb_model)
+    mse_rf, r2_rf = evaluate_model("Random Forest Tuned", rf_model)
+
+    # --- Feature Importance untuk XGBoost ---
+    # Ambil best estimator dari search untuk masing-masing target
+    importances_padi = xgb_model.estimators_[0].best_estimator_.feature_importances_
+    importances_beras = xgb_model.estimators_[1].best_estimator_.feature_importances_
     avg_importances = (importances_padi + importances_beras) / 2
 
     feature_names = X.columns
     importance_df = pd.DataFrame({'Fitur': feature_names, 'Tingkat Kepentingan': avg_importances})
     importance_df = importance_df.sort_values(by='Tingkat Kepentingan', ascending=False)
 
-    print("\n--- Rata-rata Tingkat Kepentingan Fitur ---")
-    print(importance_df)
-    
-    # Membuat dan menyimpan plot tingkat kepentingan fitur
     plt.figure(figsize=(10, 6))
     plt.barh(importance_df['Fitur'], importance_df['Tingkat Kepentingan'])
     plt.xlabel('Tingkat Kepentingan')
     plt.ylabel('Fitur')
-    plt.title('Tingkat Kepentingan Fitur pada Model XGBoost')
+    plt.title('Tingkat Kepentingan Fitur (XGBoost Tuned)')
     plt.gca().invert_yaxis()
     plt.tight_layout()
-    plt.savefig('xgboost_feature_importance.png')
-    
-    print("\n✅ Plot tingkat kepentingan fitur disimpan sebagai 'xgboost_feature_importance.png'")
+    plt.savefig('xgboost_tuned_feature_importance.png')
+
+    print("\n✅ Tuning & scaling selesai. Model disimpan.")
+    print("✅ Plot tingkat kepentingan fitur disimpan sebagai 'xgboost_tuned_feature_importance.png'")
 
 except FileNotFoundError:
     print("File 'main_data.csv' tidak ditemukan.")
 except ImportError:
-    print("Error: Library xgboost tidak terinstal. Silakan instal dengan 'pip install xgboost'")
+    print("Error: Pastikan library yang dibutuhkan sudah diinstall.")
 except Exception as e:
     print(f"Terjadi kesalahan: {e}")
