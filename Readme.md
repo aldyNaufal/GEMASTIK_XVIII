@@ -167,8 +167,15 @@ Kegagalan kedua model untuk menghasilkan prediksi yang valid (ditandai dengan R�
 
 ---
 
-## ✅ 11. Kesimpulan
+## 11. Kesimpulan
 
 Penelitian ini menunjukkan bahwa model prediksi produksi padi dan beras yang **hanya mengandalkan data iklim (curah hujan dan kelembapan tanah) tidaklah cukup** untuk menghasilkan prediksi yang akurat dan andal di Indonesia. Kedua model yang diuji, **Random Forest** dan **XGBoost**, gagal total dalam tugas ini, yang dibuktikan dengan **skor R² negatif** pada kedua model.
 
 Meskipun modelnya gagal, proyek ini berhasil memberikan sebuah wawasan penting: **sistem pertanian adalah ekosistem yang kompleks** di mana iklim hanyalah salah satu dari banyak faktor yang saling berinteraksi. Kegagalan ini bukan akhir, melainkan sebuah titik awal yang valid, yang mengarahkan penelitian di masa depan untuk membangun model yang lebih holistik dengan mengintegrasikan variabel agronomis, ekonomis, dan kebijakan untuk menciptakan alat prediksi ketahanan pangan yang benar-benar bermanfaat.
+
+
+---
+## Development Team
+* I Putu Paramaananda Tanaya
+* Muhammad Aldy Naufal Fadhilah 
+* Jonathan Young
